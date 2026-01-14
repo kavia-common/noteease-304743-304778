@@ -176,7 +176,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     expect(within(list).getByText("My first note")).toBeInTheDocument();
 
     // Dismiss the *Saved* toast (unambiguous: multiple toasts can exist with their own dismiss buttons).
-    // Wait for the toast container to exist before scoping.
+    // Scope the dismissal to the toast that contains the "Saved" title.
     const savedToastTitle = await within(notifications).findByText("Saved");
     const savedToast = savedToastTitle.closest('[role="status"]') || savedToastTitle.closest('[role="alert"]');
     expect(savedToast).toBeTruthy();
@@ -319,7 +319,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     await user.click(within(list).getByRole("listitem", { name: /open note: beta/i }));
 
     expect(confirmSpy).toHaveBeenCalledWith("You have unsaved changes. Discard them?");
-    // Should still be on Alpha note (with our typed change): assert deterministic value.
+    // Should still be on Alpha note (with our typed change): assert deterministic value via Title input.
     expect(screen.getByLabelText(/^title$/i)).toHaveValue("Alpha changed");
 
     // Second attempt: accept.
