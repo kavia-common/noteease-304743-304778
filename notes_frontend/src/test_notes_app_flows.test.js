@@ -159,7 +159,6 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     await user.click(saveButton);
 
     // Toast appears (scope to notifications region to avoid matching editor "Saved" chip)
-    const notifications = getNotificationsRegion();
     expect(await within(notifications).findByText("Saved")).toBeInTheDocument();
     expect(within(notifications).getByText("Your note is up to date.")).toBeInTheDocument();
 
@@ -176,8 +175,13 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     const list = within(sidebar).getByRole("list", { name: /notes list/i });
     expect(within(list).getByText("My first note")).toBeInTheDocument();
 
-    // Dismiss toast to avoid cross-test interference
-    await user.click(within(notifications).getByRole("button", { name: /dismiss notification/i }));
+    // Dismiss the *Saved* toast (unambiguous: multiple toasts can exist with their own dismiss buttons).
+    // Wait for the toast container to exist before scoping.
+    const savedToastTitle = await within(notifications).findByText("Saved");
+    const savedToast = savedToastTitle.closest('[role="status"]') || savedToastTitle.closest('[role="alert"]');
+    expect(savedToast).toBeTruthy();
+
+    await user.click(within(savedToast).getByRole("button", { name: /dismiss notification/i }));
     await waitFor(() => {
       expect(within(notifications).queryByText("Saved")).not.toBeInTheDocument();
     });
@@ -315,8 +319,8 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     await user.click(within(list).getByRole("listitem", { name: /open note: beta/i }));
 
     expect(confirmSpy).toHaveBeenCalledWith("You have unsaved changes. Discard them?");
-    // Should still be on Alpha note: assert using the Title field specifically (avoid ambiguous matches).
-    expect(screen.getByLabelText(/^title$/i)).toHaveValue(expect.stringMatching(/alpha/i));
+    // Should still be on Alpha note (with our typed change): assert deterministic value.
+    expect(screen.getByLabelText(/^title$/i)).toHaveValue("Alpha changed");
 
     // Second attempt: accept.
     confirmSpy.mockReturnValueOnce(true);
