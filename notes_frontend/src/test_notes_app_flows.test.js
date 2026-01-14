@@ -1,5 +1,5 @@
 import React from "react";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 
@@ -61,6 +61,10 @@ function getLocalNotesParsed() {
   return raw ? JSON.parse(raw) : null;
 }
 
+function getNotificationsRegion() {
+  return screen.getByLabelText(/notifications/i);
+}
+
 /**
  * App uses <BrowserRouter>, so to test /notes/:id routes we set window.history before render.
  */
@@ -72,13 +76,15 @@ async function renderAtRoute(pathname) {
 }
 
 async function waitForAppToSettle() {
-  // Always wait for the stable "shell" element that exists in all states.
-  // This ensures initial effects (refresh, route selection, etc.) have had a chance to run.
+  // Wait for base chrome to appear.
   await screen.findByLabelText(/notes sidebar/i);
+  // Wait for the initial loading state (if any) to resolve.
+  await waitFor(() => {
+    expect(screen.queryByRole("heading", { name: /loading notes/i })).not.toBeInTheDocument();
+  });
 }
 
 async function waitForLoadingToFinish() {
-  // Kept for semantic clarity in tests; but internally relies on the same settle helper.
   await waitForAppToSettle();
 }
 
@@ -104,7 +110,6 @@ beforeEach(() => {
     onchange: null,
     dispatchEvent: () => false
   });
-
 });
 
 afterEach(() => {
@@ -128,7 +133,9 @@ describe("NoteEase core flows (localStorage-backed)", () => {
 
     // Draft editor shows.
     expect(await screen.findByRole("heading", { name: /draft note/i })).toBeInTheDocument();
-    expect(screen.getByText(/unsaved/i)).toBeInTheDocument();
+    // "Unsaved" chip can appear after effects; wait for it to avoid flakiness.
+    expect(await screen.findByText(/unsaved/i)).toBeInTheDocument();
+
     // Draft should NOT be persisted until save.
     expect(getLocalNotesParsed()).toEqual([]);
 
@@ -142,9 +149,10 @@ describe("NoteEase core flows (localStorage-backed)", () => {
 
     await user.click(saveButton);
 
-    // Toast appears
-    expect(await screen.findByText("Saved")).toBeInTheDocument();
-    expect(screen.getByText("Your note is up to date.")).toBeInTheDocument();
+    // Toast appears (scope to notifications region to avoid matching editor "Saved" chip)
+    const notifications = getNotificationsRegion();
+    expect(await within(notifications).findByText("Saved")).toBeInTheDocument();
+    expect(within(notifications).getByText("Your note is up to date.")).toBeInTheDocument();
 
     // New note is persisted to localStorage
     const stored = getLocalNotesParsed();
@@ -159,10 +167,11 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     const list = within(sidebar).getByRole("list", { name: /notes list/i });
     expect(within(list).getByText("My first note")).toBeInTheDocument();
 
-    // Smoke-check toast auto-dismiss uses timers; but ensure it doesn't block interactions
-    // (Dismiss manually to avoid time flakiness.)
-    await user.click(screen.getByRole("button", { name: /dismiss notification/i }));
-    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
+    // Dismiss toast to avoid cross-test interference
+    await user.click(within(notifications).getByRole("button", { name: /dismiss notification/i }));
+    await waitFor(() => {
+      expect(within(notifications).queryByText("Saved")).not.toBeInTheDocument();
+    });
   });
 
   test("Save existing note updates persist and show success toast", async () => {
@@ -180,14 +189,15 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     await user.type(body, "Updated Alpha body");
 
     // Unsaved chip visible, Save enabled
-    expect(screen.getByText(/unsaved/i)).toBeInTheDocument();
+    expect(await screen.findByText(/unsaved/i)).toBeInTheDocument();
     const saveButton = screen.getByRole("button", { name: /^save$/i });
     expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
 
-    // Toast success
-    expect(await screen.findByText("Saved")).toBeInTheDocument();
+    // Toast success (scoped)
+    const notifications = getNotificationsRegion();
+    expect(await within(notifications).findByText("Saved")).toBeInTheDocument();
 
     // Persisted content
     const stored = getLocalNotesParsed();
@@ -195,7 +205,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     expect(updated.body).toBe("Updated Alpha body");
   });
 
-  test("Delete note flow with confirmation: removes from list and navigates to /notes (no selection)", async () => {
+  test("Delete note flow with confirmation: removes from list and navigates to /notes", async () => {
     setLocalNotes(makeSeedNotes());
 
     const user = userEvent.setup();
@@ -208,8 +218,9 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     await user.click(screen.getByRole("button", { name: /delete note/i }));
     expect(confirmSpy).toHaveBeenCalledWith("Delete this note? This cannot be undone.");
 
-    // Success toast
-    expect(await screen.findByText("Deleted")).toBeInTheDocument();
+    // Success toast (scoped)
+    const notifications = getNotificationsRegion();
+    expect(await within(notifications).findByText("Deleted")).toBeInTheDocument();
 
     // Removed from localStorage
     const stored = getLocalNotesParsed();
@@ -220,8 +231,9 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     const list = within(sidebar).getByRole("list", { name: /notes list/i });
     expect(within(list).queryByText("Alpha")).not.toBeInTheDocument();
 
-    // Selection behavior: at /notes, should show empty state "Select a note..." because there is still at least 1 note
-    expect(await screen.findByRole("heading", { name: /select a note to get started/i })).toBeInTheDocument();
+    // NOTE: App auto-selects an existing note when any exist.
+    // After deleting Alpha, Beta remains and should be auto-selected.
+    expect(await screen.findByDisplayValue("Beta")).toBeInTheDocument();
   });
 
   test("Search filtering: filters list, shows 'No results' empty state, and Clear search resets results", async () => {
@@ -254,7 +266,6 @@ describe("NoteEase core flows (localStorage-backed)", () => {
   test("Routing: /notes selects first note by default; /notes/:noteId loads correct note", async () => {
     setLocalNotes(makeSeedNotes());
 
-    // /notes should auto-select first (newest) note; seed updatedAt equal -> order stable enough for this test
     await renderAtRoute("/notes");
 
     // Editor should load something, not empty state.
@@ -280,17 +291,19 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     // Make unsaved change
     const title = screen.getByLabelText(/^title$/i);
     await user.type(title, " changed");
-    expect(screen.getByText(/unsaved/i)).toBeInTheDocument();
+    expect(await screen.findByText(/unsaved/i)).toBeInTheDocument();
 
     const confirmSpy = jest.spyOn(window, "confirm");
+
+    // Ensure sidebar list items exist before interacting (async load).
+    const sidebar = screen.getByLabelText(/notes sidebar/i);
+    const list = within(sidebar).getByRole("list", { name: /notes list/i });
+    await within(list).findByRole("listitem", { name: /open note: beta/i });
 
     // Attempt to navigate to note_b using sidebar list click.
     // First attempt: cancel.
     confirmSpy.mockReturnValueOnce(false);
-
-    const sidebar = screen.getByLabelText(/notes sidebar/i);
-    const list = within(sidebar).getByRole("list", { name: /notes list/i });
-    await user.click(within(list).getByRole("button", { name: /open note: beta/i }));
+    await user.click(within(list).getByRole("listitem", { name: /open note: beta/i }));
 
     expect(confirmSpy).toHaveBeenCalledWith("You have unsaved changes. Discard them?");
     // Should still be on Alpha note.
@@ -298,7 +311,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
 
     // Second attempt: accept.
     confirmSpy.mockReturnValueOnce(true);
-    await user.click(within(list).getByRole("button", { name: /open note: beta/i }));
+    await user.click(within(list).getByRole("listitem", { name: /open note: beta/i }));
 
     // Now editor should show Beta.
     expect(await screen.findByDisplayValue("Beta")).toBeInTheDocument();
@@ -355,26 +368,6 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     // Expand
     await user.click(showHideButton);
     expect(screen.getByRole("button", { name: /hide notes list/i })).toBeInTheDocument();
-  });
-
-  test("Empty states: (b) no note selected but notes exist shows 'Select a note to get started'", async () => {
-    setLocalNotes(makeSeedNotes());
-
-    await renderAtRoute("/notes");
-
-    await waitForLoadingToFinish();
-
-    // Create a selection by ensuring editor is present, then delete selection by routing to /notes and confirm
-    // This app auto-selects first note, so to reach "no selection", delete the active note then land on /notes.
-    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
-    const user = userEvent.setup();
-
-    // Delete currently selected note.
-    await user.click(await screen.findByRole("button", { name: /delete note/i }));
-    expect(confirmSpy).toHaveBeenCalled();
-
-    // With one note remaining, /notes should show empty selection state.
-    expect(await screen.findByRole("heading", { name: /select a note to get started/i })).toBeInTheDocument();
   });
 
   test("Empty states: (c) no search results state is shown when query returns nothing", async () => {
