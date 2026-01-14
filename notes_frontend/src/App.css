@@ -443,12 +443,103 @@ button, input, textarea {
   font-size: 12px;
 }
 
-/* Responsive: stack sidebar above editor */
-@media (max-width: 980px) {
-  :root {
-    --sidebar-width: 1fr;
-  }
+/* Toasts (non-blocking notifications) */
+.k-toast-viewport {
+  position: fixed;
+  top: calc(var(--header-height) + 14px);
+  right: 14px;
+  display: grid;
+  gap: 10px;
+  width: min(420px, calc(100vw - 28px));
+  z-index: 50;
+  pointer-events: none; /* keep non-blocking */
+}
 
+.k-toast {
+  pointer-events: auto; /* allow dismissal */
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--ocean-border);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-md);
+  animation: kToastIn 140ms ease-out;
+}
+
+[data-theme="dark"] .k-toast {
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.k-toast-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.k-toast-message {
+  font-size: 12px;
+  color: var(--ocean-muted);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.k-toast-dismiss {
+  border: 1px solid var(--ocean-border);
+  background: transparent;
+  color: var(--ocean-muted);
+  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  transition: box-shadow 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.k-toast-dismiss:hover {
+  background: rgba(37, 99, 235, 0.06);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.k-toast-success {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.k-toast-error {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.k-toast-info {
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+@keyframes kToastIn {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Minor editor spacing refinement */
+.k-editor-body {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  flex: 1;
+}
+
+.k-textarea {
+  min-height: 260px;
+}
+
+/* Responsive: collapse sidebar on small screens (instead of always stacking it) */
+@media (max-width: 980px) {
   .k-main {
     grid-template-columns: 1fr;
   }
@@ -463,5 +554,22 @@ button, input, textarea {
 
   .k-split {
     grid-template-columns: 1fr;
+  }
+
+  .k-toast-viewport {
+    right: 10px;
+    top: calc(var(--header-height) + 10px);
+    width: min(420px, calc(100vw - 20px));
+  }
+}
+
+/* Sidebar collapse behavior */
+@media (max-width: 860px) {
+  .k-sidebar.k-sidebar-collapsed .k-note-list {
+    display: none;
+  }
+
+  .k-sidebar.k-sidebar-collapsed .k-sidebar-top {
+    border-bottom: none;
   }
 }
