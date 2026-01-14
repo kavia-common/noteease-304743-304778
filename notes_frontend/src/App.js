@@ -106,40 +106,70 @@ function NotesShell() {
 
   useUnsavedChangesPrompt(isDirty, "You have unsaved changes. Discard them?");
 
+  // Prevent setState-after-unmount and "not wrapped in act(...)" warnings in tests.
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const refresh = useCallback(
     async (preferredId) => {
-      setLoading(true);
+      // Only update state if still mounted (avoid late async setState).
+      const safeSet = (fn) => {
+        if (!mountedRef.current) return;
+        fn();
+      };
+
+      safeSet(() => setLoading(true));
+
       try {
         const list = await store.list();
-        setNotes(list);
+
+        safeSet(() => setNotes(list));
 
         const nextId = preferredId || noteId || (list[0]?.id ?? null);
 
         if (!nextId) {
-          setActive(null);
-          setLoading(false);
+          safeSet(() => {
+            setActive(null);
+            setLoading(false);
+          });
           return;
         }
 
         // If we’re currently showing a draft (not persisted), keep it as active.
         if (draft && nextId === draft.id) {
-          setActive(draft);
-          setLoading(false);
+          safeSet(() => {
+            setActive(draft);
+            setLoading(false);
+          });
           return;
         }
 
-        setActive(list.find((n) => n.id === nextId) || null);
-        setLoading(false);
+        const nextActive = list.find((n) => n.id === nextId) || null;
+        safeSet(() => {
+          setActive(nextActive);
+          setLoading(false);
+        });
       } catch (e) {
-        setLoading(false);
-        notify({ type: "error", title: "Could not load notes", message: e?.message || "Please try again." });
+        safeSet(() => setLoading(false));
+        // Toasts are non-blocking; avoid firing after unmount.
+        if (mountedRef.current) {
+          notify({ type: "error", title: "Could not load notes", message: e?.message || "Please try again." });
+        }
       }
     },
     [store, noteId, draft, notify]
   );
 
   useEffect(() => {
-    refresh().catch(() => setLoading(false));
+    refresh().catch(() => {
+      if (mountedRef.current) setLoading(false);
+    });
   }, [refresh]);
 
   useEffect(() => {

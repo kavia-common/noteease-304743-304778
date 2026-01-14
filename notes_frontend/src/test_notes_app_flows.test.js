@@ -1,5 +1,5 @@
 import React from "react";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 
@@ -64,17 +64,22 @@ function getLocalNotesParsed() {
 /**
  * App uses <BrowserRouter>, so to test /notes/:id routes we set window.history before render.
  */
-function renderAtRoute(pathname) {
+async function renderAtRoute(pathname) {
   window.history.pushState({}, "Test", pathname);
-  return render(<App />);
+  const utils = render(<App />);
+  await waitForAppToSettle();
+  return utils;
+}
+
+async function waitForAppToSettle() {
+  // Always wait for the stable "shell" element that exists in all states.
+  // This ensures initial effects (refresh, route selection, etc.) have had a chance to run.
+  await screen.findByLabelText(/notes sidebar/i);
 }
 
 async function waitForLoadingToFinish() {
-  // Loading state uses aria-busy=true; wait for it to go away.
-  const loading = screen.queryByRole("region", { name: /loading notes/i });
-  if (!loading) return;
-  // In CRA/JSDOM the loading state should be brief; use findBy* to wait for the final UI.
-  await screen.findByLabelText(/notes sidebar/i);
+  // Kept for semantic clarity in tests; but internally relies on the same settle helper.
+  await waitForAppToSettle();
 }
 
 beforeEach(() => {
@@ -100,15 +105,10 @@ beforeEach(() => {
     dispatchEvent: () => false
   });
 
-  // Avoid tests being flaky due to focus setTimeout in NoteEditor.
-  jest.spyOn(window, "setTimeout").mockImplementation((fn) => {
-    fn();
-    // Return a numeric id like real setTimeout
-    return 1;
-  });
 });
 
 afterEach(() => {
+  cleanup();
   jest.restoreAllMocks();
 });
 
@@ -118,7 +118,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     setLocalNotes([]);
 
     const user = userEvent.setup();
-    renderAtRoute("/notes");
+    await renderAtRoute("/notes");
 
     // Empty state when no notes exist.
     expect(await screen.findByRole("heading", { name: /your notes, organized/i })).toBeInTheDocument();
@@ -169,7 +169,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     setLocalNotes(makeSeedNotes());
 
     const user = userEvent.setup();
-    renderAtRoute("/notes/note_a");
+    await renderAtRoute("/notes/note_a");
 
     // Ensure editor loaded for correct note
     expect(await screen.findByDisplayValue("Alpha")).toBeInTheDocument();
@@ -201,7 +201,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     const user = userEvent.setup();
     const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
 
-    renderAtRoute("/notes/note_a");
+    await renderAtRoute("/notes/note_a");
     expect(await screen.findByDisplayValue("Alpha")).toBeInTheDocument();
 
     // Delete
@@ -228,7 +228,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     setLocalNotes(makeSeedNotes());
 
     const user = userEvent.setup();
-    renderAtRoute("/notes");
+    await renderAtRoute("/notes");
 
     await waitForLoadingToFinish();
 
@@ -255,13 +255,16 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     setLocalNotes(makeSeedNotes());
 
     // /notes should auto-select first (newest) note; seed updatedAt equal -> order stable enough for this test
-    renderAtRoute("/notes");
+    await renderAtRoute("/notes");
 
     // Editor should load something, not empty state.
     expect(await screen.findByLabelText(/note editor/i)).toBeInTheDocument();
 
+    // Do not mount multiple App instances without cleanup.
+    cleanup();
+
     // Now render directly to /notes/note_b
-    renderAtRoute("/notes/note_b");
+    await renderAtRoute("/notes/note_b");
     expect(await screen.findByDisplayValue("Beta")).toBeInTheDocument();
   });
 
@@ -271,7 +274,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     const user = userEvent.setup();
 
     // First render on note_a
-    renderAtRoute("/notes/note_a");
+    await renderAtRoute("/notes/note_a");
     expect(await screen.findByDisplayValue("Alpha")).toBeInTheDocument();
 
     // Make unsaved change
@@ -305,7 +308,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     setLocalNotes(makeSeedNotes());
 
     const user = userEvent.setup();
-    renderAtRoute("/notes");
+    await renderAtRoute("/notes");
 
     await waitForLoadingToFinish();
 
@@ -340,7 +343,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     });
 
     const user = userEvent.setup();
-    renderAtRoute("/notes");
+    await renderAtRoute("/notes");
 
     await waitForLoadingToFinish();
 
@@ -357,7 +360,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
   test("Empty states: (b) no note selected but notes exist shows 'Select a note to get started'", async () => {
     setLocalNotes(makeSeedNotes());
 
-    renderAtRoute("/notes");
+    await renderAtRoute("/notes");
 
     await waitForLoadingToFinish();
 
@@ -378,7 +381,7 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     setLocalNotes(makeSeedNotes());
 
     const user = userEvent.setup();
-    renderAtRoute("/notes");
+    await renderAtRoute("/notes");
 
     await waitForLoadingToFinish();
 
@@ -392,11 +395,14 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     setLocalNotes(makeSeedNotes());
 
     const user = userEvent.setup();
-    renderAtRoute("/notes/note_a");
+    await renderAtRoute("/notes/note_a");
     expect(await screen.findByDisplayValue("Alpha")).toBeInTheDocument();
 
     // Make dirty
     await user.type(screen.getByLabelText(/^title$/i), " x");
+
+    // Ensure dirty UI state has propagated (this also implies the hook's effect has run at least once).
+    await screen.findByText(/unsaved/i);
 
     // Trigger beforeunload event and ensure returnValue is set.
     const evt = new Event("beforeunload");
