@@ -1,5 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams
+} from "react-router-dom";
 import "./App.css";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
@@ -22,16 +30,60 @@ function useTheme() {
   return { theme, setTheme };
 }
 
-function createEmptyNote() {
+function createDraftNote() {
   const now = nowIso();
   return {
-    id: makeId(),
+    id: makeId("draft"),
     title: "",
     body: "",
     tags: [],
     createdAt: now,
     updatedAt: now
   };
+}
+
+// PUBLIC_INTERFACE
+function useUnsavedChangesPrompt(when, message) {
+  /**
+   * Minimal, consistent prompt for losing unsaved changes.
+   * Covers browser/tab close and in-app navigation (route changes).
+   */
+  const location = useLocation();
+  const lastLocationRef = useRef(location);
+
+  // Browser/tab close (native prompt)
+  useEffect(() => {
+    if (!when) return;
+
+    const handler = (e) => {
+      e.preventDefault();
+      // Chrome requires returnValue to be set.
+      e.returnValue = message;
+      return message;
+    };
+
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [when, message]);
+
+  // SPA route change detection: if route changes while dirty, confirm and (if cancelled) revert.
+  useEffect(() => {
+    if (!when) {
+      lastLocationRef.current = location;
+      return;
+    }
+
+    const prev = lastLocationRef.current;
+    if (prev.key !== location.key) {
+      const ok = window.confirm(message);
+      if (!ok) {
+        // Go back to previous location. This keeps prompts minimal and avoids custom modals.
+        window.history.back();
+      } else {
+        lastLocationRef.current = location;
+      }
+    }
+  }, [location, when, message]);
 }
 
 function NotesShell() {
@@ -42,17 +94,47 @@ function NotesShell() {
   const [notes, setNotes] = useState([]);
   const [search, setSearch] = useState("");
   const [active, setActive] = useState(null);
+
+  // Dirty state refers to the editor’s current note.
   const [isDirty, setIsDirty] = useState(false);
+
+  // Draft state: drafts are not persisted until Save.
+  const [draft, setDraft] = useState(null);
+
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async (preferredId) => {
-    setLoading(true);
-    const list = await store.list();
-    setNotes(list);
-    const nextId = preferredId || noteId || (list[0]?.id ?? null);
-    setActive(nextId ? list.find((n) => n.id === nextId) || null : null);
-    setLoading(false);
-  }, [store, noteId]);
+  const confirmLoseChanges = useCallback(() => {
+    return window.confirm("You have unsaved changes. Discard them?");
+  }, []);
+
+  useUnsavedChangesPrompt(isDirty, "You have unsaved changes. Discard them?");
+
+  const refresh = useCallback(
+    async (preferredId) => {
+      setLoading(true);
+      const list = await store.list();
+      setNotes(list);
+
+      const nextId = preferredId || noteId || (list[0]?.id ?? null);
+
+      if (!nextId) {
+        setActive(null);
+        setLoading(false);
+        return;
+      }
+
+      // If we’re currently showing a draft (not persisted), keep it as active.
+      if (draft && nextId === draft.id) {
+        setActive(draft);
+        setLoading(false);
+        return;
+      }
+
+      setActive(list.find((n) => n.id === nextId) || null);
+      setLoading(false);
+    },
+    [store, noteId, draft]
+  );
 
   useEffect(() => {
     refresh().catch(() => setLoading(false));
@@ -60,31 +142,57 @@ function NotesShell() {
 
   useEffect(() => {
     if (!noteId) return;
+
+    // If URL points at current draft, keep it active.
+    if (draft && noteId === draft.id) {
+      setActive(draft);
+      return;
+    }
+
     const selected = notes.find((n) => n.id === noteId) || null;
     setActive(selected);
-  }, [noteId, notes]);
+  }, [noteId, notes, draft]);
 
   const onSelect = (id) => {
-    if (isDirty) {
-      const ok = window.confirm("You have unsaved changes. Switch notes anyway?");
-      if (!ok) return;
-    }
+    if (isDirty && !confirmLoseChanges()) return;
+    // If moving away from a draft, discard it safely.
+    if (draft) setDraft(null);
     navigate(`/notes/${id}`);
   };
 
   const onCreateNew = () => {
-    if (isDirty) {
-      const ok = window.confirm("You have unsaved changes. Create a new note anyway?");
-      if (!ok) return;
-    }
-    const draft = createEmptyNote();
-    // We navigate to the draft id; it will be persisted on first save.
-    navigate(`/notes/${draft.id}`, { state: { draft } });
-    setActive(draft);
+    if (isDirty && !confirmLoseChanges()) return;
+
+    // Cancel any existing draft when starting a new one.
+    if (draft) setDraft(null);
+
+    const nextDraft = createDraftNote();
+    setDraft(nextDraft);
+    setActive(nextDraft);
+
+    // Draft lives only in UI state; route still reflects the editor context.
+    navigate(`/notes/${nextDraft.id}`, { state: { draft: true } });
+  };
+
+  const onCancelDraft = () => {
+    // Only relevant if current active is draft.
+    if (!draft) return;
+
+    if (isDirty && !confirmLoseChanges()) return;
+
+    setDraft(null);
+    setIsDirty(false);
+
+    // Navigate to first available note, else /notes (empty state).
+    const next = notes[0]?.id;
+    if (next) navigate(`/notes/${next}`);
+    else navigate("/notes");
   };
 
   const onSave = async (next) => {
+    // Saving a draft promotes it to a regular note (persisted) and clears draft state.
     await store.upsert(next);
+    setDraft(null);
     await refresh(next.id);
     navigate(`/notes/${next.id}`);
   };
@@ -92,6 +200,15 @@ function NotesShell() {
   const onDelete = async (id) => {
     const ok = window.confirm("Delete this note? This cannot be undone.");
     if (!ok) return;
+
+    // If deleting a draft (should be rare), just discard it.
+    if (draft && id === draft.id) {
+      setDraft(null);
+      setIsDirty(false);
+      navigate("/notes");
+      return;
+    }
+
     await store.remove(id);
     await refresh();
     navigate("/notes");
@@ -108,18 +225,20 @@ function NotesShell() {
     }
 
     if (!active) {
-      return <EmptyState onCreateNew={onCreateNew} />;
+      return <EmptyState onCreateNew={onCreateNew} hasAnyNotes={notes.length > 0} />;
     }
 
     return (
       <NoteEditor
         note={active}
+        isDraft={Boolean(draft && active?.id === draft.id)}
         onSave={onSave}
         onDelete={onDelete}
+        onCancelDraft={onCancelDraft}
         onChangeDirty={setIsDirty}
       />
     );
-  }, [active, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, loading, draft, notes.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="k-main">

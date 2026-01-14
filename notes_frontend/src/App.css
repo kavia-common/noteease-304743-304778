@@ -419,6 +419,13 @@ button, input, textarea {
   gap: 10px;
 }
 
+.k-empty-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .k-empty h2 {
   margin: 0;
   font-size: 18px;

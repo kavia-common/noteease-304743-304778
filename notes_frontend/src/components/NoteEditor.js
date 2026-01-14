@@ -12,8 +12,10 @@ function normalizeTags(raw) {
 // PUBLIC_INTERFACE
 export default function NoteEditor({
   note,
+  isDraft,
   onSave,
   onDelete,
+  onCancelDraft,
   onChangeDirty
 }) {
   /** Editor for a single note: title, markdown body, tags. */
@@ -59,15 +61,23 @@ export default function NoteEditor({
     <section className="k-card k-editor" aria-label="Note editor">
       <div className="k-editor-head">
         <h2>
-          {note?.id ? "Edit note" : "New note"}{" "}
+          {isDraft ? "Draft note" : "Edit note"}{" "}
           {isDirty ? <span className="k-chip">Unsaved</span> : <span className="k-chip">Saved</span>}
+          {isDraft ? <span className="k-chip">Draft</span> : null}
         </h2>
 
         <div className="k-editor-actions">
           <button className="k-btn k-btn-primary" onClick={handleSave} disabled={!isDirty}>
             Save
           </button>
-          {note?.id ? (
+
+          {isDraft ? (
+            <button className="k-btn" onClick={onCancelDraft} title="Discard this draft">
+              Cancel draft
+            </button>
+          ) : null}
+
+          {note?.id && !isDraft ? (
             <button className="k-btn k-btn-danger" onClick={() => onDelete(note.id)}>
               Delete
             </button>
@@ -122,7 +132,11 @@ export default function NoteEditor({
         </div>
 
         <div className="k-footer-hint">
-          {lastSavedAt ? `Last saved: ${new Date(lastSavedAt).toLocaleString()}` : "Not saved yet"}
+          {isDraft
+            ? "Draft is not saved yet. Save to keep it."
+            : lastSavedAt
+              ? `Last saved: ${new Date(lastSavedAt).toLocaleString()}`
+              : "Not saved yet"}
         </div>
       </div>
     </section>

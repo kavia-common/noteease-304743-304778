@@ -20,6 +20,9 @@ export default function Sidebar({
     });
   }, [notes, search]);
 
+  const hasAnyNotes = notes.length > 0;
+  const hasQuery = (search || "").trim().length > 0;
+
   return (
     <aside className="k-card k-sidebar" aria-label="Notes sidebar">
       <div className="k-sidebar-top">
@@ -42,10 +45,28 @@ export default function Sidebar({
       </div>
 
       <div className="k-note-list">
-        {filtered.length === 0 ? (
-          <div className="k-empty">
-            <h2>No matching notes</h2>
-            <p>Try a different search or create a new note.</p>
+        {!hasAnyNotes ? (
+          <div className="k-empty" aria-label="No notes empty state">
+            <h2>No notes yet</h2>
+            <p>Create your first note to start building your knowledge base.</p>
+            <div className="k-empty-actions">
+              <button className="k-btn k-btn-primary" onClick={onCreateNew}>
+                Create note
+              </button>
+            </div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="k-empty" aria-label="No search results empty state">
+            <h2>No results</h2>
+            <p>Nothing matched your search. Try clearing the query or create a new note.</p>
+            <div className="k-empty-actions">
+              <button className="k-btn" onClick={() => onSearchChange("")} disabled={!hasQuery}>
+                Clear search
+              </button>
+              <button className="k-btn k-btn-primary" onClick={onCreateNew}>
+                Create note
+              </button>
+            </div>
           </div>
         ) : (
           filtered.map((note) => {
@@ -65,7 +86,9 @@ export default function Sidebar({
                 {(note.tags || []).length > 0 ? (
                   <div className="k-note-meta">
                     {(note.tags || []).slice(0, 3).map((t) => (
-                      <span className="k-chip" key={t}>{t}</span>
+                      <span className="k-chip" key={t}>
+                        {t}
+                      </span>
                     ))}
                     {(note.tags || []).length > 3 ? (
                       <span className="k-chip">+{note.tags.length - 3}</span>
