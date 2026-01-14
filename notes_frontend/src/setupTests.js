@@ -16,8 +16,9 @@ beforeAll(() => {
   });
 
   // Global default for confirm() so jsdom doesn't throw "Not implemented".
+  // Use a hard assignment (not a spy) so it survives tests calling jest.restoreAllMocks().
   // Tests can still override per-case with mockReturnValueOnce / mockReturnValue.
-  jest.spyOn(window, "confirm").mockImplementation(() => true);
+  window.confirm = jest.fn(() => true);
 
   // Provide a stable matchMedia stub (desktop by default) for responsive components.
   if (!window.matchMedia) {

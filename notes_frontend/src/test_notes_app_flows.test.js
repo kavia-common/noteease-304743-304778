@@ -114,7 +114,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  jest.restoreAllMocks();
+  // Avoid jest.restoreAllMocks() here:
+  // - it can reset global mocks other tests rely on (e.g., window.confirm)
+  // - tests should clean up only what they create
 });
 
 describe("NoteEase core flows (localStorage-backed)", () => {
@@ -133,8 +135,16 @@ describe("NoteEase core flows (localStorage-backed)", () => {
 
     // Draft editor shows.
     expect(await screen.findByRole("heading", { name: /draft note/i })).toBeInTheDocument();
-    // "Unsaved" chip can appear after effects; wait for it to avoid flakiness.
-    expect(await screen.findByText(/unsaved/i)).toBeInTheDocument();
+
+    // Deterministic signal that draft creation completed: "New draft" toast.
+    // (Scoped to notifications to avoid matching other "Saved/Unsaved" UI text.)
+    const notifications = getNotificationsRegion();
+    expect(await within(notifications).findByText("New draft")).toBeInTheDocument();
+    expect(within(notifications).getByText(/start typing/i)).toBeInTheDocument();
+
+    // Save should be disabled on a fresh draft (no edits yet).
+    const saveButton = await screen.findByRole("button", { name: /^save$/i });
+    expect(saveButton).toBeDisabled();
 
     // Draft should NOT be persisted until save.
     expect(getLocalNotesParsed()).toEqual([]);
@@ -144,7 +154,6 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     await user.type(screen.getByLabelText(/body \(markdown\)/i), "Hello world");
     await user.type(screen.getByLabelText(/tags/i), "ideas, personal");
 
-    const saveButton = screen.getByRole("button", { name: /^save$/i });
     expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
@@ -306,8 +315,8 @@ describe("NoteEase core flows (localStorage-backed)", () => {
     await user.click(within(list).getByRole("listitem", { name: /open note: beta/i }));
 
     expect(confirmSpy).toHaveBeenCalledWith("You have unsaved changes. Discard them?");
-    // Should still be on Alpha note.
-    expect(screen.getByDisplayValue(/alpha/i)).toBeInTheDocument();
+    // Should still be on Alpha note: assert using the Title field specifically (avoid ambiguous matches).
+    expect(screen.getByLabelText(/^title$/i)).toHaveValue(expect.stringMatching(/alpha/i));
 
     // Second attempt: accept.
     confirmSpy.mockReturnValueOnce(true);
