@@ -151,6 +151,23 @@ button, input, textarea {
   background: linear-gradient(135deg, var(--ocean-secondary), rgba(245, 158, 11, 0.75));
 }
 
+/* Badge variants (used by Sync status indicator) */
+.k-badge.k-badge-ok {
+  background: linear-gradient(135deg, var(--ocean-primary), rgba(37, 99, 235, 0.72));
+}
+
+.k-badge.k-badge-checking {
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.62), rgba(107, 114, 128, 0.75));
+}
+
+.k-badge.k-badge-error {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(239, 68, 68, 0.65));
+}
+
+.k-badge.k-badge-local {
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.70), rgba(17, 24, 39, 0.45));
+}
+
 .k-btn {
   border: 1px solid var(--ocean-border);
   background: rgba(255, 255, 255, 0.85);
